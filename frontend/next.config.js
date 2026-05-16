@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "standalone",
+// Removed standalone output for Netlify compatibility
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "*.supabase.co" },
