@@ -1,0 +1,250 @@
+"""
+Auth Router - Password + OTP Verification
+Flow:
+  1. POST /signup      { email, password, full_name } → creates unverified user, sends 6-digit OTP
+  2. POST /verify-otp  { email, otp } → verifies email, sets is_verified=True, returns JWT
+  3. POST /login       { email, password } → verifies password, returns JWT
+  4. GET  /me          → current user info
+  5. POST /logout      → client discards tokens
+"""
+import random
+import string
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
+
+from app.database.session import get_db
+from app.models.models import Profile, UserRole
+from app.schemas.schemas import (
+    ProfileResponse, MessageResponse, TokenResponse,
+    SignUpRequest, LoginRequest, OTPVerifyRequest, RefreshTokenRequest
+)
+from app.core.security import (
+    create_access_token, create_refresh_token, decode_token,
+    hash_password, verify_password
+)
+from app.core.config import settings
+from app.core.email import send_otp_email
+from app.auth.dependencies import get_current_user
+
+router = APIRouter()
+
+OTP_EXPIRE_MINUTES = 10
+
+
+# ── Helpers ───────────────────────────────────────────────
+def generate_otp() -> str:
+    """Generate a 6-digit numeric OTP."""
+    return "".join(random.choices(string.digits, k=6))
+
+
+# ── Endpoints ─────────────────────────────────────────────
+@router.post("/signup", response_model=MessageResponse)
+async def signup(
+    data: SignUpRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Register a new user with email and password.
+    Sends a 6-digit OTP for email verification.
+    """
+    # Check if user already exists
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        if existing_user.is_verified:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        # If user exists but not verified, update their info and resend OTP
+        existing_user.hashed_password = hash_password(data.password)
+        existing_user.full_name = data.full_name
+        existing_user.phone = data.phone
+        profile = existing_user
+    else:
+        # Create new unverified profile
+        role = UserRole.SUPER_ADMIN.value if data.email == settings.SUPER_ADMIN_EMAIL else UserRole.BUSINESS_OWNER.value
+        profile = Profile(
+            email=data.email,
+            hashed_password=hash_password(data.password),
+            full_name=data.full_name,
+            phone=data.phone,
+            role=role,
+            is_active=True,
+            is_verified=False,
+        )
+    # Generate and store OTP
+    otp = generate_otp()
+    profile.otp_secret = otp
+    profile.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES)
+    profile.otp_fail_count = 0
+    
+    db.add(profile)
+    await db.flush()
+
+    # Send OTP email in background
+
+    # Send OTP email in background
+    try:
+        background_tasks.add_task(
+            send_otp_email,
+            email=data.email,
+            otp=otp,
+            name=profile.full_name or data.email.split("@")[0],
+        )
+    except Exception as e:
+        # If email fails, we should ideally handle it, but it's in background_tasks
+        pass
+
+    return MessageResponse(
+        message=f"Verification code sent to {data.email}. Valid for {OTP_EXPIRE_MINUTES} minutes."
+    )
+
+
+@router.post("/verify-otp", response_model=TokenResponse)
+async def verify_otp(
+    data: OTPVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify OTP and activate account."""
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    profile = result.scalar_one_or_none()
+
+    if not profile or not profile.otp_secret:
+        raise HTTPException(status_code=400, detail="No verification pending for this email.")
+
+    # Check brute force
+    if profile.otp_fail_count >= 5:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new OTP.")
+
+    # Check expiry
+    now = datetime.now(timezone.utc)
+    if profile.otp_expires_at is None or now > profile.otp_expires_at:
+        profile.otp_secret = None
+        profile.otp_expires_at = None
+        raise HTTPException(status_code=400, detail="OTP has expired. Please signup again.")
+
+    # Check OTP value
+    if data.otp.strip() != profile.otp_secret:
+        profile.otp_fail_count += 1
+        await db.flush()
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
+
+    # Success
+    profile.is_verified = True
+    profile.otp_secret = None
+    profile.otp_expires_at = None
+    profile.otp_fail_count = 0
+    profile.last_login_at = now
+    await db.flush()
+
+    # Get business_id if exists
+    from app.models.models import Business
+    biz_result = await db.execute(select(Business.id).where(Business.owner_id == profile.id))
+    business_id = biz_result.scalar_one_or_none()
+
+    access_token = create_access_token(
+        subject=str(profile.id),
+        role=profile.role,
+        business_id=str(business_id) if business_id else None,
+    )
+    refresh_token = create_refresh_token(subject=str(profile.id))
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=ProfileResponse.model_validate(profile),
+    )
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(
+    data: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Login with email and password."""
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    profile = result.scalar_one_or_none()
+
+    if not profile:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not profile.is_verified:
+        raise HTTPException(status_code=403, detail="Please verify your email first")
+
+    if not profile.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    if not profile.hashed_password or not verify_password(data.password, profile.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Success
+    profile.last_login_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    # Get business_id
+    from app.models.models import Business
+    biz_result = await db.execute(select(Business.id).where(Business.owner_id == profile.id))
+    business_id = biz_result.scalar_one_or_none()
+
+    access_token = create_access_token(
+        subject=str(profile.id),
+        role=profile.role,
+        business_id=str(business_id) if business_id else None,
+    )
+    refresh_token = create_refresh_token(subject=str(profile.id))
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=ProfileResponse.model_validate(profile),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    data: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Refresh access token."""
+    payload = decode_token(data.refresh_token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=400, detail="Invalid refresh token")
+
+    result = await db.execute(select(Profile).where(Profile.id == UUID(payload["sub"])))
+    profile = result.scalar_one_or_none()
+    
+    if not profile or not profile.is_active or not profile.is_verified:
+        raise HTTPException(status_code=401, detail="User not found or status invalid")
+
+    from app.models.models import Business
+    biz_result = await db.execute(select(Business.id).where(Business.owner_id == profile.id))
+    business_id = biz_result.scalar_one_or_none()
+
+    access_token = create_access_token(
+        subject=str(profile.id),
+        role=profile.role,
+        business_id=str(business_id) if business_id else None,
+    )
+    new_refresh = create_refresh_token(subject=str(profile.id))
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=ProfileResponse.model_validate(profile),
+    )
+
+
+@router.get("/me", response_model=ProfileResponse)
+async def get_me(current_user: Profile = Depends(get_current_user)):
+    return ProfileResponse.model_validate(current_user)
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(current_user: Profile = Depends(get_current_user)):
+    return MessageResponse(message="Logged out successfully")
