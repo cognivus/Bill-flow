@@ -7,8 +7,7 @@ Flow:
   4. GET  /me          → current user info
   5. POST /logout      → client discards tokens
 """
-import random
-import string
+import secrets
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,8 +35,8 @@ OTP_EXPIRE_MINUTES = 10
 
 # ── Helpers ───────────────────────────────────────────────
 def generate_otp() -> str:
-    """Generate a 6-digit numeric OTP."""
-    return "".join(random.choices(string.digits, k=6))
+    """Generate a cryptographically secure 6-digit numeric OTP."""
+    return "".join([str(secrets.randbelow(10)) for _ in range(6)])
 
 
 # ── Endpoints ─────────────────────────────────────────────
@@ -243,6 +242,52 @@ async def refresh_token(
 @router.get("/me", response_model=ProfileResponse)
 async def get_me(current_user: Profile = Depends(get_current_user)):
     return ProfileResponse.model_validate(current_user)
+
+
+@router.post("/resend-otp", response_model=MessageResponse)
+async def resend_otp(
+    data: OTPVerifyRequest,  # reuse email field; otp field ignored
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Resend a fresh OTP to an unverified user.
+    Dedicated endpoint so the frontend does NOT re-call /signup.
+    Has a 60-second cooldown enforced server-side.
+    """
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    profile = result.scalar_one_or_none()
+
+    if not profile:
+        # Don't leak whether email exists — return success anyway
+        return MessageResponse(message=f"If {data.email} is registered, a new code was sent.")
+
+    if profile.is_verified:
+        raise HTTPException(status_code=400, detail="Email already verified.")
+
+    # Cooldown: only allow resend if last OTP was sent > 60 seconds ago
+    now = datetime.now(timezone.utc)
+    if profile.otp_expires_at:
+        already_waited = (OTP_EXPIRE_MINUTES * 60) - (profile.otp_expires_at - now).total_seconds()
+        if already_waited < 60:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {int(60 - already_waited)} seconds before requesting another code."
+            )
+
+    otp = generate_otp()
+    profile.otp_secret = otp
+    profile.otp_expires_at = now + timedelta(minutes=OTP_EXPIRE_MINUTES)
+    profile.otp_fail_count = 0
+    await db.flush()
+
+    background_tasks.add_task(
+        send_otp_email,
+        email=profile.email,
+        otp=otp,
+        name=profile.full_name or profile.email.split("@")[0],
+    )
+    return MessageResponse(message=f"New verification code sent to {data.email}.")
 
 
 @router.post("/logout", response_model=MessageResponse)

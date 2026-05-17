@@ -46,7 +46,7 @@ async def list_customers(
     return CustomerListResponse(
         items=[CustomerResponse.model_validate(c) for c in customers],
         total=total, page=page, per_page=per_page,
-        pages=math.ceil(total / per_page),
+        pages=math.ceil(total / per_page) if total > 0 else 1,
     )
 
 
@@ -111,7 +111,9 @@ async def delete_customer(
     customer = result.scalar_one_or_none()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    # Soft delete — flush to persist
     customer.is_active = False
+    await db.flush()
     return MessageResponse(message="Customer deleted successfully")
 
 
@@ -136,5 +138,5 @@ async def get_customer_invoices(
     return {
         "items": [InvoiceResponse.model_validate(i) for i in invoices],
         "total": total, "page": page, "per_page": per_page,
-        "pages": math.ceil(total / per_page),
+        "pages": math.ceil(total / per_page) if total > 0 else 1,
     }

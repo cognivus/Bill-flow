@@ -21,8 +21,6 @@ export interface TokenResponse {
 }
 
 // ─── Business ─────────────────────────────────────────────
-export type SubscriptionPlan = "free" | "starter" | "professional" | "enterprise";
-
 export interface Business {
   id: string;
   owner_id: string;
@@ -39,7 +37,6 @@ export interface Business {
   pincode?: string;
   country: string;
   logo_url?: string;
-  subscription_plan: SubscriptionPlan;
   invoice_prefix: string;
   invoice_counter: number;
   invoice_notes?: string;

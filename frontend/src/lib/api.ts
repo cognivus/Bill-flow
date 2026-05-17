@@ -63,6 +63,9 @@ export const authApi = {
     api.post("/auth/signup", data),
   verifyOtp: (data: { email: string; otp: string }) =>
     api.post("/auth/verify-otp", data),
+  // FIX: Dedicated resend endpoint — does NOT re-trigger full signup
+  resendOtp: (email: string) =>
+    api.post("/auth/resend-otp", { email, otp: "" }),
   login: (data: { email: string; password: string }) =>
     api.post("/auth/login", data),
   refresh: (refresh_token: string) =>
@@ -122,7 +125,6 @@ export const invoicesApi = {
 // ── Super Admin API ───────────────────────────────────────
 export const adminApi = {
   getStats: () => api.get("/admin/stats"),
-  getRevenueChart: () => api.get("/admin/revenue-chart"),
 
   // Users
   listUsers: (params?: object) => api.get("/admin/users", { params }),
@@ -132,12 +134,6 @@ export const adminApi = {
 
   // Businesses
   listBusinesses: (params?: object) => api.get("/admin/businesses", { params }),
-  getBusiness: (id: string) => api.get(`/admin/businesses/${id}`),
-  updateSubscription: (id: string, data: object) =>
-    api.patch(`/admin/businesses/${id}/subscription`, data),
   toggleBusiness: (id: string) => api.patch(`/admin/businesses/${id}/toggle`),
   deleteBusiness: (id: string) => api.delete(`/admin/businesses/${id}`),
-
-  // Invoices (platform-wide)
-  listInvoices: (params?: object) => api.get("/admin/invoices", { params }),
 };

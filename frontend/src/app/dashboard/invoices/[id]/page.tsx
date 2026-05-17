@@ -76,16 +76,19 @@ export default function InvoiceDetailPage() {
       const res = await invoicesApi.downloadPdf(id);
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
-      
+
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.src = url;
       document.body.appendChild(iframe);
-      
+
+      // FIX: setPrinting(false) moved inside onload — button stays disabled
+      // until the print dialog actually opens, not just until the fetch finishes
       iframe.onload = () => {
         iframe.contentWindow?.print();
         toast.dismiss(toastId);
-        // Cleanup
+        setPrinting(false);
+        // Cleanup after print dialog closes
         setTimeout(() => {
           document.body.removeChild(iframe);
           URL.revokeObjectURL(url);
@@ -93,11 +96,9 @@ export default function InvoiceDetailPage() {
       };
     } catch {
       toast.error("Failed to generate professional print", { id: toastId });
-    } finally {
       setPrinting(false);
     }
   };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">

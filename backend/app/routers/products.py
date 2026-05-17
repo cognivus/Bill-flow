@@ -46,7 +46,7 @@ async def list_products(
     return ProductListResponse(
         items=[ProductResponse.model_validate(p) for p in products],
         total=total, page=page, per_page=per_page,
-        pages=math.ceil(total / per_page),
+        pages=math.ceil(total / per_page) if total > 0 else 1,
     )
 
 
@@ -111,5 +111,7 @@ async def delete_product(
     product = result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    product.is_active = False  # Soft delete
+    # FIX: Soft delete — must flush to persist the change
+    product.is_active = False
+    await db.flush()
     return MessageResponse(message="Product deleted successfully")

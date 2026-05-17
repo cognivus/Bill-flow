@@ -25,15 +25,22 @@ export default function InvoicesPage() {
   const [data, setData] = useState<InvoiceListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // FIX: Debounced search — only fires API after 300ms idle, not on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | "">( (searchParams.get("payment_status") as PaymentStatus) || "");
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, per_page: 15 };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (paymentStatus) params.payment_status = paymentStatus;
       const res = await invoicesApi.list(params);
       setData(res.data);
@@ -42,7 +49,7 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, paymentStatus]);
+  }, [page, debouncedSearch, paymentStatus]);
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
 

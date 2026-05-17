@@ -2,7 +2,7 @@
 Invoice Service - Business Logic, Calculations & PDF Generation
 """
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timezone
 from io import BytesIO
@@ -86,13 +86,18 @@ def calculate_invoice_totals(
 
 
 async def generate_invoice_number(db: AsyncSession, business: Business) -> str:
-    """Generate sequential invoice number for business."""
-    await db.execute(
+    """
+    Generate sequential invoice number for business.
+    Uses RETURNING to get the post-increment value atomically — prevents
+    duplicate invoice numbers even under concurrent requests.
+    """
+    result = await db.execute(
         update(Business)
         .where(Business.id == business.id)
         .values(invoice_counter=Business.invoice_counter + 1)
+        .returning(Business.invoice_counter)
     )
-    counter = business.invoice_counter
+    counter = result.scalar_one()
     return f"{business.invoice_prefix}-{counter:04d}"
 
 
@@ -121,7 +126,6 @@ async def create_invoice(
     customer_phone = data.customer_phone
     customer_address = data.customer_address
     customer_gst = data.customer_gst
-
     customer_id = data.customer_id
 
     if customer_id:
@@ -200,10 +204,10 @@ async def create_invoice(
         db.add(inv_item)
 
     # Update customer stats
-    if data.customer_id:
+    if customer_id:
         await db.execute(
             update(Customer)
-            .where(Customer.id == data.customer_id)
+            .where(Customer.id == customer_id)
             .values(
                 total_purchases=Customer.total_purchases + totals["grand_total"],
                 invoice_count=Customer.invoice_count + 1,
@@ -244,9 +248,9 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     )
 
     styles = getSampleStyleSheet()
-    brand_color = colors.HexColor("#0f172a")  # Slate 900
-    subtle_color = colors.HexColor("#64748b")  # Slate 500
-    accent_color = colors.HexColor("#2563eb")  # Blue 600
+    brand_color = colors.HexColor("#0f172a")
+    subtle_color = colors.HexColor("#64748b")
+    accent_color = colors.HexColor("#2563eb")
 
     title_style = ParagraphStyle(
         "Title", parent=styles["Normal"],
@@ -260,7 +264,7 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     header_label_style = ParagraphStyle(
         "HeaderLabel", parent=styles["Normal"],
         fontSize=8, textColor=subtle_color, fontName="Helvetica-Bold",
-        textTransform="uppercase", spaceAfter=2
+        spaceAfter=2
     )
     bold_style = ParagraphStyle(
         "Bold", parent=styles["Normal"],
@@ -277,28 +281,23 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
 
     elements = []
 
-    # ── Header Section ────────────────────────────
-    # Business Info (Left) | Invoice Label (Right)
     biz_addr = ", ".join(filter(None, [
         business.address_line1, business.city,
         business.state, business.pincode
     ]))
 
-    # Fetch logo if exists
     logo_flowable = None
     if business.logo_url:
         try:
             import httpx
-            with httpx.Client() as client:
+            with httpx.Client(timeout=5.0) as client:
                 resp = client.get(business.logo_url)
                 if resp.status_code == 200:
-                    # Square-ish logo container
                     logo_flowable = Image(BytesIO(resp.content), width=35*mm, height=35*mm)
                     logo_flowable.hAlign = 'LEFT'
         except Exception:
             logo_flowable = None
-    
-    # Create a nested table for the logo and business info side-by-side
+
     biz_info_data = [[
         logo_flowable if logo_flowable else Spacer(1, 1),
         [
@@ -335,7 +334,7 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
             ))
         ]
     ]]
-    
+
     header_table = Table(header_data, colWidths=[110 * mm, 70 * mm])
     header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -343,14 +342,12 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     ]))
     elements.append(header_table)
 
-    # ── Details Section ───────────────────────────
-    # Bill To (Left) | Invoice Meta (Right)
     invoice_meta = [
         [Paragraph("DATE", header_label_style), Paragraph(invoice.invoice_date.strftime('%d %b %Y'), bold_style)],
         [Paragraph("DUE DATE", header_label_style), Paragraph(invoice.due_date.strftime('%d %b %Y') if invoice.due_date else 'On Receipt', bold_style)],
         [Paragraph("STATUS", header_label_style), Paragraph(str(invoice.payment_status).upper(), bold_style)],
     ]
-    
+
     meta_table = Table(invoice_meta, colWidths=[30 * mm, 40 * mm])
     meta_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -361,7 +358,7 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     if invoice.customer_name:
         bill_to = [
             Paragraph("BILL TO", header_label_style),
-            Paragraph(invoice.customer_name, title_style.clone("CustName", fontSize=14)),
+            Paragraph(invoice.customer_name, ParagraphStyle("CustName", parent=styles["Normal"], fontSize=14, fontName="Helvetica-Bold", textColor=brand_color)),
             Paragraph(invoice.customer_address or "", subtitle_style),
             Paragraph(f"GST: {invoice.customer_gst}" if invoice.customer_gst else "", subtitle_style),
             Paragraph(invoice.customer_phone or "", subtitle_style),
@@ -375,7 +372,6 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     ]))
     elements.append(details_table)
 
-    # ── Items Table ───────────────────────────────
     col_headers = ["#", "DESCRIPTION", "HSN", "QTY", "RATE", "GST", "AMOUNT"]
     col_widths = [10 * mm, 75 * mm, 20 * mm, 15 * mm, 20 * mm, 15 * mm, 25 * mm]
 
@@ -406,18 +402,20 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     ]))
     elements.append(item_table)
 
-    # ── Totals ────────────────────────────────────
     totals_rows = [
         ["Subtotal", f"INR {invoice.subtotal:,.2f}"],
     ]
     if invoice.discount_amount > 0:
         totals_rows.append(["Discount", f"-INR {invoice.discount_amount:,.2f}"])
-    
+
     gst_total = (invoice.cgst_amount or 0) + (invoice.sgst_amount or 0) + (invoice.igst_amount or 0)
     if gst_total > 0:
         totals_rows.append(["Tax (GST)", f"INR {gst_total:,.2f}"])
-        
-    totals_rows.append([Paragraph("GRAND TOTAL", bold_style), Paragraph(f"INR {invoice.grand_total:,.2f}", title_style.clone("TotalVal", fontSize=18, alignment=TA_RIGHT))])
+
+    totals_rows.append([
+        Paragraph("GRAND TOTAL", bold_style),
+        Paragraph(f"INR {invoice.grand_total:,.2f}", ParagraphStyle("TotalVal", parent=styles["Normal"], fontSize=18, fontName="Helvetica-Bold", textColor=accent_color, alignment=TA_RIGHT))
+    ])
 
     totals_table = Table(totals_rows, colWidths=[130 * mm, 50 * mm])
     totals_table.setStyle(TableStyle([
@@ -431,7 +429,6 @@ def generate_invoice_pdf(invoice: Invoice, business: Business) -> bytes:
     elements.append(Spacer(1, 10 * mm))
     elements.append(totals_table)
 
-    # ── Footer ────────────────────────────────────
     elements.append(Spacer(1, 20 * mm))
     if invoice.notes or invoice.terms:
         elements.append(Paragraph("TERMS & NOTES", header_label_style))

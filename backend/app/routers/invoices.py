@@ -3,15 +3,16 @@ Invoices Router - Full CRUD + PDF Generation
 """
 from uuid import UUID
 from typing import Optional
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
 import math
 
 from app.database.session import get_db
-from app.models.models import Invoice, InvoiceItem, Business, InvoiceStatus, PaymentStatus
+from app.models.models import Invoice, InvoiceItem, Business, Customer, InvoiceStatus, PaymentStatus
 from app.schemas.schemas import (
     InvoiceCreate, InvoiceUpdate, InvoiceResponse,
     InvoiceListResponse, MessageResponse
@@ -66,7 +67,7 @@ async def list_invoices(
         total=total,
         page=page,
         per_page=per_page,
-        pages=math.ceil(total / per_page),
+        pages=math.ceil(total / per_page) if total > 0 else 1,
     )
 
 
@@ -77,7 +78,7 @@ async def create_new_invoice(
     db: AsyncSession = Depends(get_db),
 ):
     invoice = await create_invoice(db, business, data)
-    await db.refresh(invoice)
+    await db.flush()
 
     result = await db.execute(
         select(Invoice)
@@ -121,20 +122,27 @@ async def update_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    update_data = data.model_dump(exclude_unset=True, exclude={"items"})
+    update_data = data.model_dump(exclude_unset=True, exclude={"items", "amount_paid"})
     for key, value in update_data.items():
         setattr(invoice, key, value)
 
-    # Update amount_due if payment_status changed
+    # FIX: Validate and update payment amounts safely
     if data.amount_paid is not None:
-        invoice.amount_due = invoice.grand_total - data.amount_paid
+        grand_total = Decimal(str(invoice.grand_total))
+        # Clamp amount_paid to [0, grand_total] — prevents negative amount_due
+        amount_paid = max(Decimal("0"), min(Decimal(str(data.amount_paid)), grand_total))
+        invoice.amount_paid = amount_paid
+        invoice.amount_due = grand_total - amount_paid
+
         if invoice.amount_due <= 0:
             invoice.payment_status = PaymentStatus.PAID
-        elif invoice.amount_paid > 0:
+            invoice.amount_due = Decimal("0")
+        elif amount_paid > 0:
             invoice.payment_status = PaymentStatus.PARTIALLY_PAID
+        else:
+            invoice.payment_status = PaymentStatus.PENDING
 
     await db.flush()
-    await db.refresh(invoice)
 
     result = await db.execute(
         select(Invoice)
@@ -157,6 +165,20 @@ async def delete_invoice(
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # FIX: Roll back customer stats when deleting an invoice
+    if invoice.customer_id:
+        await db.execute(
+            update(Customer)
+            .where(Customer.id == invoice.customer_id)
+            .values(
+                total_purchases=func.greatest(
+                    Customer.total_purchases - invoice.grand_total,
+                    Decimal("0")
+                ),
+                invoice_count=func.greatest(Customer.invoice_count - 1, 0),
+            )
+        )
 
     await db.delete(invoice)
     return MessageResponse(message="Invoice deleted successfully")

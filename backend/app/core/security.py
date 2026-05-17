@@ -1,26 +1,26 @@
 """
 Security - JWT Token Management & Password Hashing
+Uses passlib for bcrypt (consistent with requirements.txt)
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 from jose import JWTError, jwt
-import bcrypt
+from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from app.core.config import settings
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    pw_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(pw_bytes, salt).decode('utf-8')
+    """Hash a password using bcrypt via passlib."""
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a bcrypt hashed password."""
-    password_bytes = plain_password.encode('utf-8')
-    hashed_bytes = hashed_password.encode('utf-8')
     try:
-        return bcrypt.checkpw(password_bytes, hashed_bytes)
+        return pwd_context.verify(plain_password, hashed_password)
     except Exception:
         return False
 

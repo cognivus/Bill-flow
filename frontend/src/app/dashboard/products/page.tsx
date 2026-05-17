@@ -35,6 +35,8 @@ export default function ProductsPage() {
   const [data, setData] = useState<ProductListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // FIX: Debounced search — 300ms delay before API call
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -46,11 +48,16 @@ export default function ProductsPage() {
     defaultValues: { gst_percentage: 18, stock_quantity: 0, low_stock_threshold: 5, unit: "pcs", track_inventory: true },
   });
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string | number> = { page, per_page: 12 };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       const res = await productsApi.list(params);
       setData(res.data);
     } catch {
@@ -58,7 +65,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, debouncedSearch]);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
 

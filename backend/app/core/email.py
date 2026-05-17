@@ -1,10 +1,10 @@
 """
-Email Service - Send OTP via SMTP (Supabase / Gmail / any SMTP)
+Email Service - Send OTP via SMTP (async using aiosmtplib)
 Configure SMTP_* variables in .env
 Falls back to console logging in development.
 """
-import smtplib
 import logging
+import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.core.config import settings
@@ -56,13 +56,23 @@ def _build_otp_html(name: str, otp: str, expire_minutes: int) -> str:
 """
 
 
+def _is_smtp_configured() -> bool:
+    """Check if SMTP is properly configured."""
+    return bool(
+        settings.SMTP_HOST
+        and settings.SMTP_USERNAME
+        and settings.SMTP_PASSWORD
+        and settings.SMTP_HOST != ""
+    )
+
+
 async def send_otp_email(email: str, otp: str, name: str) -> bool:
     """
-    Send OTP email via SMTP.
-    If SMTP is not configured, logs the OTP to console (dev mode).
+    Send OTP email via SMTP (fully async using aiosmtplib).
+    Falls back to console logging if SMTP is not configured.
     """
     # ── Dev mode: just log it ─────────────────────────────
-    if not settings.SMTP_HOST or settings.SMTP_HOST == "smtp.gmail.com" and not settings.SMTP_PASSWORD:
+    if not _is_smtp_configured():
         logger.warning(
             f"\n{'='*50}\n"
             f"  OTP EMAIL (dev mode — SMTP not configured)\n"
@@ -72,8 +82,10 @@ async def send_otp_email(email: str, otp: str, name: str) -> bool:
         )
         return True
 
-    # ── Production: send via SMTP ─────────────────────────
+    # ── Production: send via aiosmtplib (non-blocking) ───
     try:
+        import aiosmtplib
+
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"{otp} is your BillFlow login code"
         msg["From"] = f"BillFlow <{settings.SMTP_FROM_EMAIL}>"
@@ -82,18 +94,19 @@ async def send_otp_email(email: str, otp: str, name: str) -> bool:
         html = _build_otp_html(name, otp, 10)
         msg.attach(MIMEText(html, "html"))
 
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.ehlo()
-            if settings.SMTP_USE_TLS:
-                server.starttls()
-            if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
-                server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_FROM_EMAIL, email, msg.as_string())
+        await aiosmtplib.send(
+            msg,
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_USERNAME,
+            password=settings.SMTP_PASSWORD,
+            use_tls=False,
+            start_tls=settings.SMTP_USE_TLS,
+        )
 
         logger.info(f"OTP email sent to {email}")
         return True
 
     except Exception as e:
         logger.error(f"Failed to send OTP email to {email}: {e}")
-        # Raise exception so the API endpoint can catch it or return 500
         raise RuntimeError(f"Could not send email: {str(e)}")

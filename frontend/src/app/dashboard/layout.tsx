@@ -57,8 +57,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleLogout = async () => {
     try { await authApi.logout(); } catch {}
     logout();
-    router.push("/auth/login");
+    // FIX: Toast must fire before router.push() or it won't render
     toast.success("Logged out successfully");
+    router.push("/auth/login");
   };
 
   // Show spinner only while checking business

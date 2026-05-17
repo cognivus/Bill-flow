@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,6 +23,8 @@ const otpSchema = z.object({
 type SignupForm = z.infer<typeof signupSchema>;
 type OtpForm = z.infer<typeof otpSchema>;
 
+const RESEND_COOLDOWN = 60; // seconds
+
 export default function SignupPage() {
   const router = useRouter();
   const { setAuth, setBusiness } = useAuthStore();
@@ -30,15 +32,34 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  // Cooldown timer: counts down from 60 to 0
+  const [cooldown, setCooldown] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const signupForm = useForm<SignupForm>({ 
+  const signupForm = useForm<SignupForm>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { full_name: "", email: "", phone: "", password: "" }
+    defaultValues: { full_name: "", email: "", phone: "", password: "" },
   });
-  
-  const otpForm = useForm<OtpForm>({ 
-    resolver: zodResolver(otpSchema) 
-  });
+
+  const otpForm = useForm<OtpForm>({ resolver: zodResolver(otpSchema) });
+
+  // Start cooldown timer
+  const startCooldown = () => {
+    setCooldown(RESEND_COOLDOWN);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current!);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Clean up timer on unmount
+  useEffect(() => () => { if (cooldownRef.current) clearInterval(cooldownRef.current); }, []);
 
   const onSignup = async (data: SignupForm) => {
     setLoading(true);
@@ -47,10 +68,11 @@ export default function SignupPage() {
         email: data.email,
         password: data.password,
         full_name: data.full_name,
-        phone: data.phone
+        phone: data.phone,
       });
       setEmail(data.email);
       setStep("otp");
+      startCooldown();
       toast.success(`Verification code sent to ${data.email}`);
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Registration failed");
@@ -65,9 +87,7 @@ export default function SignupPage() {
       const res = await authApi.verifyOtp({ email, otp: data.otp });
       const { access_token, refresh_token, user } = res.data;
       setAuth(user, access_token, refresh_token);
-
       toast.success("Account verified successfully!");
-      
       try {
         const bizRes = await businessApi.getMe();
         setBusiness(bizRes.data);
@@ -83,19 +103,17 @@ export default function SignupPage() {
     }
   };
 
+  // FIX: Use dedicated /resend-otp endpoint (not full /signup)
+  // FIX: Enforce 60-second client-side cooldown
   const onResend = async () => {
+    if (cooldown > 0 || resending) return;
     setResending(true);
     try {
-      const values = signupForm.getValues();
-      await authApi.signup({
-        email: values.email,
-        password: values.password,
-        full_name: values.full_name,
-        phone: values.phone
-      });
+      await authApi.resendOtp(email);
       toast.success("New code sent!");
-    } catch {
-      toast.error("Failed to resend code");
+      startCooldown();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Failed to resend code");
     } finally {
       setResending(false);
     }
@@ -124,7 +142,7 @@ export default function SignupPage() {
               <>
                 <div className="mb-6">
                   <h1 className="text-2xl font-bold text-slate-900">Create account</h1>
-                  <p className="text-slate-500 text-sm mt-1">Start your 14-day free trial</p>
+                  <p className="text-slate-500 text-sm mt-1">Start your free trial</p>
                 </div>
 
                 <form onSubmit={signupForm.handleSubmit(onSignup)} className="space-y-4">
@@ -191,8 +209,11 @@ export default function SignupPage() {
                     )}
                   </div>
 
-                  <button type="submit" disabled={loading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
                     {loading ? (
                       <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating account...</>
                     ) : (
@@ -236,17 +257,31 @@ export default function SignupPage() {
                     )}
                   </div>
 
-                  <button type="submit" disabled={loading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
                     {loading ? "Verifying..." : "Verify Code"}
                   </button>
 
+                  {/* FIX: Cooldown timer prevents spam; dedicated resend-otp endpoint */}
                   <div className="flex items-center justify-center">
-                    <button type="button" onClick={onResend} disabled={resending}
-                      className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 disabled:opacity-50 transition-colors">
-                      <RefreshCw className={`w-3.5 h-3.5 ${resending ? "animate-spin" : ""}`} />
-                      Resend code
-                    </button>
+                    {cooldown > 0 ? (
+                      <p className="text-sm text-slate-400">
+                        Resend in <span className="font-semibold text-slate-600">{cooldown}s</span>
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={onResend}
+                        disabled={resending}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 disabled:opacity-50 transition-colors"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${resending ? "animate-spin" : ""}`} />
+                        {resending ? "Sending..." : "Resend code"}
+                      </button>
+                    )}
                   </div>
                 </form>
               </>

@@ -1,16 +1,16 @@
 """
-Super Admin Router — User & Business Management Only
-No subscription plans, no revenue charts.
+Super Admin Router — User & Business Management
 Admin can: view all users, create users, deactivate users, change roles,
            view all businesses, toggle business active/inactive, delete businesses.
 """
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, timezone
+import secrets
+import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
-import math
 
 from app.database.session import get_db
 from app.models.models import Profile, Business, Invoice, UserRole
@@ -45,7 +45,7 @@ class PlatformStats(BaseModel):
     new_users_today: int
 
 
-# ── Platform Stats (simple counts only) ──────────────────
+# ── Platform Stats ────────────────────────────────────────
 @router.get("/stats", response_model=PlatformStats)
 async def get_stats(
     _: Profile = Depends(require_admin),
@@ -99,12 +99,13 @@ async def list_users(
             "phone": p.phone,
             "role": p.role,
             "is_active": p.is_active,
+            "is_verified": p.is_verified,
             "last_login_at": p.last_login_at.isoformat() if p.last_login_at else None,
             "created_at": p.created_at.isoformat(),
             "business_name": biz_name,
         })
 
-    return {"items": result, "total": total, "page": page, "per_page": per_page, "pages": math.ceil(total / per_page)}
+    return {"items": result, "total": total, "page": page, "per_page": per_page, "pages": math.ceil(total / per_page) if total > 0 else 1}
 
 
 @router.post("/users", status_code=201)
@@ -113,10 +114,17 @@ async def create_user(
     _: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin creates a user directly (no OTP needed)."""
+    """
+    Admin creates a user directly.
+    FIX: Sets is_verified=True so the user can log in via OTP immediately.
+    A temporary password is set; user should reset it or use OTP flow.
+    """
     existing = (await db.execute(select(Profile).where(Profile.email == data.email))).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
+
+    # Generate a random temp password — user will use OTP to set their own
+    temp_password = secrets.token_urlsafe(16)
 
     profile = Profile(
         email=data.email,
@@ -124,6 +132,8 @@ async def create_user(
         phone=data.phone,
         role=data.role,
         is_active=True,
+        is_verified=True,           # FIX: Admin-created users can log in immediately
+        hashed_password=hash_password(temp_password),  # FIX: Must have a password hash
     )
     db.add(profile)
     await db.flush()
@@ -160,6 +170,7 @@ async def deactivate_user(
     if profile.role == UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Cannot deactivate super admin")
     profile.is_active = False
+    await db.flush()
     return MessageResponse(message=f"User {profile.email} deactivated")
 
 
@@ -197,7 +208,7 @@ async def list_businesses(
             "created_at": b.created_at.isoformat(),
         })
 
-    return {"items": result, "total": total, "page": page, "per_page": per_page, "pages": math.ceil(total / per_page)}
+    return {"items": result, "total": total, "page": page, "per_page": per_page, "pages": math.ceil(total / per_page) if total > 0 else 1}
 
 
 @router.patch("/businesses/{business_id}/toggle", response_model=MessageResponse)
@@ -210,6 +221,7 @@ async def toggle_business(
     if not business:
         raise HTTPException(status_code=404, detail="Business not found")
     business.is_active = not business.is_active
+    await db.flush()
     action = "activated" if business.is_active else "deactivated"
     return MessageResponse(message=f"Business '{business.name}' {action}")
 
