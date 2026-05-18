@@ -25,7 +25,7 @@ from app.core.security import (
     hash_password, verify_password
 )
 from app.core.config import settings
-from app.core.email import send_otp_email
+from app.core.email import send_otp_email, _is_smtp_configured
 from app.auth.dependencies import get_current_user
 
 router = APIRouter()
@@ -84,18 +84,20 @@ async def signup(
     await db.flush()
 
     # Send OTP email in background
+    background_tasks.add_task(
+        send_otp_email,
+        email=data.email,
+        otp=otp,
+        name=profile.full_name or data.email.split("@")[0],
+    )
 
-    # Send OTP email in background
-    try:
-        background_tasks.add_task(
-            send_otp_email,
-            email=data.email,
-            otp=otp,
-            name=profile.full_name or data.email.split("@")[0],
+    # In dev mode (SMTP not configured), return OTP in response so signup works
+    # without needing an email provider. Never do this in production.
+    if not _is_smtp_configured():
+        return MessageResponse(
+            message=f"[DEV MODE - No SMTP configured] Your OTP is: {otp}  — "
+                    f"Configure SMTP_* in .env to send real emails."
         )
-    except Exception as e:
-        # If email fails, we should ideally handle it, but it's in background_tasks
-        pass
 
     return MessageResponse(
         message=f"Verification code sent to {data.email}. Valid for {OTP_EXPIRE_MINUTES} minutes."
@@ -287,6 +289,12 @@ async def resend_otp(
         otp=otp,
         name=profile.full_name or profile.email.split("@")[0],
     )
+
+    if not _is_smtp_configured():
+        return MessageResponse(
+            message=f"[DEV MODE - No SMTP configured] Your new OTP is: {otp}"
+        )
+
     return MessageResponse(message=f"New verification code sent to {data.email}.")
 
 

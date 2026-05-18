@@ -30,6 +30,7 @@ export default function SignupPage() {
   const { setAuth, setBusiness } = useAuthStore();
   const [step, setStep] = useState<"signup" | "otp">("signup");
   const [email, setEmail] = useState("");
+  const [devOtp, setDevOtp] = useState<string | null>(null); // shown when SMTP not configured
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   // Cooldown timer: counts down from 60 to 0
@@ -64,7 +65,7 @@ export default function SignupPage() {
   const onSignup = async (data: SignupForm) => {
     setLoading(true);
     try {
-      await authApi.signup({
+      const res = await authApi.signup({
         email: data.email,
         password: data.password,
         full_name: data.full_name,
@@ -73,7 +74,17 @@ export default function SignupPage() {
       setEmail(data.email);
       setStep("otp");
       startCooldown();
-      toast.success(`Verification code sent to ${data.email}`);
+
+      // Dev mode: backend returns OTP in message when SMTP is not configured
+      const msg: string = res.data?.message || "";
+      const otpMatch = msg.match(/OTP is:\s*(\d{6})/);
+      if (otpMatch) {
+        setDevOtp(otpMatch[1]);
+        toast.warning("SMTP not configured — OTP shown on screen (dev mode only)");
+      } else {
+        setDevOtp(null);
+        toast.success(`Verification code sent to ${data.email}`);
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Registration failed");
     } finally {
@@ -109,8 +120,15 @@ export default function SignupPage() {
     if (cooldown > 0 || resending) return;
     setResending(true);
     try {
-      await authApi.resendOtp(email);
-      toast.success("New code sent!");
+      const res = await authApi.resendOtp(email);
+      const msg: string = res.data?.message || "";
+      const otpMatch = msg.match(/OTP is:\s*(\d{6})/);
+      if (otpMatch) {
+        setDevOtp(otpMatch[1]);
+        toast.warning("New OTP shown on screen (dev mode — SMTP not configured)");
+      } else {
+        toast.success("New code sent!");
+      }
       startCooldown();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Failed to resend code");
@@ -242,6 +260,14 @@ export default function SignupPage() {
                 </div>
 
                 <form onSubmit={otpForm.handleSubmit(onVerifyOtp)} className="space-y-6">
+                  {/* Dev mode banner — shown when SMTP not configured */}
+                  {devOtp && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">⚠️ Dev Mode — No SMTP Configured</p>
+                      <p className="text-sm text-amber-800">Your OTP is: <span className="font-mono font-bold text-lg tracking-widest">{devOtp}</span></p>
+                      <p className="text-xs text-amber-600 mt-1">Configure SMTP settings in your <code>.env</code> file to send real emails.</p>
+                    </div>
+                  )}
                   <div>
                     <input
                       {...otpForm.register("otp")}
