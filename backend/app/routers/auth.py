@@ -25,7 +25,7 @@ from app.core.security import (
     hash_password, verify_password
 )
 from app.core.config import settings
-from app.core.email import send_otp_email, _is_smtp_configured
+from app.core.email import send_otp_email, _is_email_configured
 from app.auth.dependencies import get_current_user
 
 router = APIRouter()
@@ -93,7 +93,7 @@ async def signup(
 
     # In dev mode (SMTP not configured), return OTP in response so signup works
     # without needing an email provider. Never do this in production.
-    if not _is_smtp_configured():
+    if not _is_email_configured():
         return MessageResponse(
             message=f"[DEV MODE - No SMTP configured] Your OTP is: {otp}  — "
                     f"Configure SMTP_* in .env to send real emails."
@@ -290,7 +290,7 @@ async def resend_otp(
         name=profile.full_name or profile.email.split("@")[0],
     )
 
-    if not _is_smtp_configured():
+    if not _is_email_configured():
         return MessageResponse(
             message=f"[DEV MODE - No SMTP configured] Your new OTP is: {otp}"
         )

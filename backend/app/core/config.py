@@ -51,14 +51,18 @@ class Settings(BaseSettings):
     # Super Admin email — this email gets super_admin role
     SUPER_ADMIN_EMAIL: str = "admin@billflow.io"
 
-    # ── SMTP Email (for OTP) ──────────────────────────────
-    # For Gmail: enable "App Passwords" and use that as SMTP_PASSWORD
-    # For Supabase email: use their SMTP settings
+    # ── Email via Resend API (SMTP is blocked on Render/most cloud hosts) ──
+    # Sign up free at https://resend.com → get API key → paste below
+    # Free tier: 100 emails/day, no credit card needed
+    RESEND_API_KEY: str = ""          # re_xxxxxxxxxxxx
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"  # works without custom domain on free tier
+
+    # Legacy SMTP fields (kept for reference but not used — Render blocks all SMTP ports)
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = "noreply@billflow.io"
+    SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
 
     # Future: AI
