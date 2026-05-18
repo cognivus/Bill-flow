@@ -51,13 +51,13 @@ class Settings(BaseSettings):
     # Super Admin email — this email gets super_admin role
     SUPER_ADMIN_EMAIL: str = "admin@billflow.io"
 
-    # ── Email via Resend API (SMTP is blocked on Render/most cloud hosts) ──
-    # Sign up free at https://resend.com → get API key → paste below
-    # Free tier: 100 emails/day, no credit card needed
-    RESEND_API_KEY: str = ""          # re_xxxxxxxxxxxx
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"  # works without custom domain on free tier
+    # ── Email via SendGrid HTTP API (works on Render — pure HTTPS) ──
+    SENDGRID_API_KEY: str = ""          # SG.xxxxxxxxxxxx
+    SENDGRID_FROM_EMAIL: str = ""       # Must be a verified sender in SendGrid
 
-    # Legacy SMTP fields (kept for reference but not used — Render blocks all SMTP ports)
+    # Legacy SMTP / Resend fields (not used — Render blocks SMTP ports)
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""

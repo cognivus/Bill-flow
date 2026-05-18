@@ -1,12 +1,7 @@
 """
-Email Service — Send OTP via Resend HTTPS API
-Render blocks all outbound SMTP ports — this uses HTTPS instead.
-
-Setup (free, 2 minutes):
-  1. https://resend.com → Sign up → API Keys → Create API Key
-  2. Add to Render env: RESEND_API_KEY=re_xxxx
-  3. RESEND_FROM_EMAIL must be "onboarding@resend.dev" on free tier
-     (or an address on a domain you have verified in Resend)
+Email Service — Send OTP via SendGrid HTTP API (HTTPS)
+Pure HTTPS — not blocked by Render or any cloud platform.
+Uses SENDGRID_API_KEY from environment variables.
 """
 import logging
 import httpx
@@ -14,9 +9,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+SENDGRID_API_URL = "https://api.sendgrid.com/v3/mail/send"
+
 
 def _is_email_configured() -> bool:
-    return bool(settings.RESEND_API_KEY and settings.RESEND_API_KEY.startswith("re_"))
+    return bool(settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.startswith("SG."))
 
 
 def _build_otp_html(name: str, otp: str, expire_minutes: int) -> str:
@@ -53,42 +50,56 @@ def _build_otp_html(name: str, otp: str, expire_minutes: int) -> str:
 
 async def send_otp_email(email: str, otp: str, name: str) -> bool:
     """
-    Send OTP via Resend HTTPS API.
-    Dev fallback: logs OTP to console if RESEND_API_KEY not configured.
+    Send OTP email via SendGrid HTTPS API.
+    Falls back to console log in dev mode if SENDGRID_API_KEY not set.
     """
     if not _is_email_configured():
         logger.warning(
             f"\n{'='*55}\n"
-            f"  OTP (dev mode — RESEND_API_KEY not set)\n"
+            f"  OTP (dev mode — SENDGRID_API_KEY not set)\n"
             f"  To:  {email}\n"
             f"  OTP: {otp}\n"
             f"{'='*55}"
         )
         return True
 
-    # FIX: Use "onboarding@resend.dev" on free tier (no domain verification needed).
-    # Using a custom from-address without a verified domain causes 403.
-    from_email = settings.RESEND_FROM_EMAIL or "onboarding@resend.dev"
+    from_email = settings.SENDGRID_FROM_EMAIL or settings.SENDGRID_FROM_EMAIL
+    sender_name = "BillFlow"
 
     payload = {
-        "from": f"BillFlow <{from_email}>",
-        "to": [email],
-        "subject": f"{otp} is your BillFlow verification code",
-        "html": _build_otp_html(name, otp, 10),
+        "personalizations": [
+            {
+                "to": [{"email": email, "name": name}],
+                "subject": f"{otp} is your BillFlow verification code",
+            }
+        ],
+        "from": {"email": from_email, "name": sender_name},
+        "reply_to": {"email": from_email, "name": sender_name},
+        "content": [
+            {
+                "type": "text/plain",
+                "value": f"Your BillFlow verification code is: {otp}\nValid for 10 minutes. Do not share this code.",
+            },
+            {
+                "type": "text/html",
+                "value": _build_otp_html(name, otp, 10),
+            },
+        ],
     }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
-            "https://api.resend.com/emails",
+            SENDGRID_API_URL,
             json=payload,
             headers={
-                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Authorization": f"Bearer {settings.SENDGRID_API_KEY}",
                 "Content-Type": "application/json",
             },
         )
 
-    if resp.status_code in (200, 201):
-        logger.info(f"OTP email sent to {email} (Resend id={resp.json().get('id')})")
+    # SendGrid returns 202 Accepted on success (no body)
+    if resp.status_code == 202:
+        logger.info(f"✅ OTP email sent to {email} via SendGrid")
         return True
 
     try:
@@ -96,12 +107,14 @@ async def send_otp_email(email: str, otp: str, name: str) -> bool:
     except Exception:
         error_body = resp.text
 
-    logger.error(f"Resend API error {resp.status_code}: {error_body}")
+    logger.error(f"SendGrid API error {resp.status_code}: {error_body}")
 
+    if resp.status_code == 401:
+        raise RuntimeError("SendGrid 401: Invalid API key — check SENDGRID_API_KEY in Render env vars")
     if resp.status_code == 403:
         raise RuntimeError(
-            "Resend 403: Set RESEND_FROM_EMAIL=onboarding@resend.dev "
-            "OR verify your domain at resend.com/domains"
+            "SendGrid 403: Sender not verified — go to SendGrid → Settings → Sender Authentication "
+            "and verify your sender email address"
         )
 
-    raise RuntimeError(f"Email send failed ({resp.status_code}): {error_body}")
+    raise RuntimeError(f"SendGrid email failed ({resp.status_code}): {error_body}")
