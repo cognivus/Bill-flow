@@ -107,6 +107,9 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  if (!data) return null;
+
   const { stats, recent_invoices, monthly_revenue } = data;
 
   const chartData = monthly_revenue.map(m => ({
