@@ -47,9 +47,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setBusiness(r.data);
         setChecking(false);
       })
-      .catch(() => {
-        // No business yet — go to onboarding
-        router.replace("/onboarding");
+      .catch((err: any) => {
+        // Only send to onboarding if business genuinely doesn't exist (404)
+        if (err.response?.status === 404) {
+          router.replace("/onboarding");
+        } else {
+          // Network/server error — stay on dashboard, show error state
+          setChecking(false);
+        }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user]);

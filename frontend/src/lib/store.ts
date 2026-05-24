@@ -31,7 +31,8 @@ export const useAuthStore = create<AuthState>()(
           localStorage.setItem("access_token", accessToken);
           localStorage.setItem("refresh_token", refreshToken);
         }
-        set({ user, accessToken, refreshToken, isAuthenticated: true });
+        // Always clear stale business from any previous session
+        set({ user, accessToken, refreshToken, isAuthenticated: true, business: null, hasBusiness: false });
       },
 
       setBusiness: (business) => {
