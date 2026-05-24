@@ -51,19 +51,16 @@ class Settings(BaseSettings):
     # Super Admin email — this email gets super_admin role
     SUPER_ADMIN_EMAIL: str = "admin@billflow.io"
 
-    # ── Email via SendGrid HTTP API (works on Render — pure HTTPS) ──
-    SENDGRID_API_KEY: str = ""          # SG.xxxxxxxxxxxx
-    SENDGRID_FROM_EMAIL: str = ""       # Must be a verified sender in SendGrid
-
-    # Legacy SMTP / Resend fields (not used — Render blocks SMTP ports)
-    RESEND_API_KEY: str = ""
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
-    SMTP_HOST: str = ""
+    # ── Email via Gmail SMTP ───────────────────────────────────────────────────
+    # 1. Enable 2FA on Google account
+    # 2. https://myaccount.google.com/apppasswords → generate 16-char App Password
+    # 3. Fill in below (SMTP_PASSWORD = App Password, NOT your Gmail password)
+    SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = ""
-    SMTP_USE_TLS: bool = True
+    SMTP_USERNAME: str = ""            # your@gmail.com
+    SMTP_PASSWORD: str = ""            # 16-char App Password
+    SMTP_FROM_EMAIL: str = ""          # same as SMTP_USERNAME
+    SMTP_USE_TLS: bool = True          # use STARTTLS on port 587
 
     # Future: AI
     OPENAI_API_KEY: Optional[str] = None

@@ -1,19 +1,34 @@
 """
-Email Service — Send OTP via SendGrid HTTP API (HTTPS)
-Pure HTTPS — not blocked by Render or any cloud platform.
-Uses SENDGRID_API_KEY from environment variables.
+Email Service — Send OTP via Gmail SMTP
+Uses aiosmtplib for async (non-blocking) SMTP over port 587 (STARTTLS).
+
+Setup:
+  1. Enable 2-Factor Authentication on your Google account
+  2. Go to: https://myaccount.google.com/apppasswords
+  3. Create an App Password for "Mail"
+  4. Add to .env:
+       SMTP_HOST=smtp.gmail.com
+       SMTP_PORT=587
+       SMTP_USERNAME=your@gmail.com
+       SMTP_PASSWORD=xxxx xxxx xxxx xxxx   (16-char App Password)
+       SMTP_FROM_EMAIL=your@gmail.com
+       SMTP_USE_TLS=True
 """
 import logging
-import httpx
+import aiosmtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-SENDGRID_API_URL = "https://api.sendgrid.com/v3/mail/send"
-
 
 def _is_email_configured() -> bool:
-    return bool(settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.startswith("SG."))
+    return bool(
+        settings.SMTP_HOST
+        and settings.SMTP_USERNAME
+        and settings.SMTP_PASSWORD
+    )
 
 
 def _build_otp_html(name: str, otp: str, expire_minutes: int) -> str:
@@ -50,71 +65,38 @@ def _build_otp_html(name: str, otp: str, expire_minutes: int) -> str:
 
 async def send_otp_email(email: str, otp: str, name: str) -> bool:
     """
-    Send OTP email via SendGrid HTTPS API.
-    Falls back to console log in dev mode if SENDGRID_API_KEY not set.
+    Send OTP email via Gmail SMTP (async, non-blocking).
+    Falls back to console log in dev mode if SMTP not configured.
     """
     if not _is_email_configured():
         logger.warning(
             f"\n{'='*55}\n"
-            f"  OTP (dev mode — SENDGRID_API_KEY not set)\n"
+            f"  OTP (dev mode — SMTP not configured)\n"
             f"  To:  {email}\n"
             f"  OTP: {otp}\n"
             f"{'='*55}"
         )
         return True
 
-    from_email = settings.SENDGRID_FROM_EMAIL or settings.SENDGRID_FROM_EMAIL
-    sender_name = "BillFlow"
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"{otp} is your BillFlow verification code"
+    msg["From"] = f"BillFlow <{settings.SMTP_FROM_EMAIL}>"
+    msg["To"] = email
 
-    payload = {
-        "personalizations": [
-            {
-                "to": [{"email": email, "name": name}],
-                "subject": f"{otp} is your BillFlow verification code",
-            }
-        ],
-        "from": {"email": from_email, "name": sender_name},
-        "reply_to": {"email": from_email, "name": sender_name},
-        "content": [
-            {
-                "type": "text/plain",
-                "value": f"Your BillFlow verification code is: {otp}\nValid for 10 minutes. Do not share this code.",
-            },
-            {
-                "type": "text/html",
-                "value": _build_otp_html(name, otp, 10),
-            },
-        ],
-    }
+    msg.attach(MIMEText(
+        f"Your BillFlow verification code is: {otp}\nValid for 10 minutes. Do not share this code.",
+        "plain"
+    ))
+    msg.attach(MIMEText(_build_otp_html(name, otp, 10), "html"))
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            SENDGRID_API_URL,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {settings.SENDGRID_API_KEY}",
-                "Content-Type": "application/json",
-            },
-        )
+    await aiosmtplib.send(
+        msg,
+        hostname=settings.SMTP_HOST,
+        port=settings.SMTP_PORT,
+        username=settings.SMTP_USERNAME,
+        password=settings.SMTP_PASSWORD,
+        start_tls=settings.SMTP_USE_TLS,
+    )
 
-    # SendGrid returns 202 Accepted on success (no body)
-    if resp.status_code == 202:
-        logger.info(f"✅ OTP email sent to {email} via SendGrid")
-        return True
-
-    try:
-        error_body = resp.json()
-    except Exception:
-        error_body = resp.text
-
-    logger.error(f"SendGrid API error {resp.status_code}: {error_body}")
-
-    if resp.status_code == 401:
-        raise RuntimeError("SendGrid 401: Invalid API key — check SENDGRID_API_KEY in Render env vars")
-    if resp.status_code == 403:
-        raise RuntimeError(
-            "SendGrid 403: Sender not verified — go to SendGrid → Settings → Sender Authentication "
-            "and verify your sender email address"
-        )
-
-    raise RuntimeError(f"SendGrid email failed ({resp.status_code}): {error_body}")
+    logger.info(f"✅ OTP email sent to {email} via Gmail SMTP")
+    return True
