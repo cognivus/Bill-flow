@@ -63,7 +63,6 @@ export const authApi = {
     api.post("/auth/signup", data),
   verifyOtp: (data: { email: string; otp: string }) =>
     api.post("/auth/verify-otp", data),
-  // FIX: Dedicated resend endpoint — does NOT re-trigger full signup
   resendOtp: (email: string) =>
     api.post("/auth/resend-otp", { email, otp: "" }),
   login: (data: { email: string; password: string }) =>
@@ -72,6 +71,14 @@ export const authApi = {
     api.post("/auth/refresh", { refresh_token }),
   logout: () => api.post("/auth/logout"),
   me: () => api.get("/auth/me"),
+
+  // Forgot / reset password
+  forgotPassword: (email: string) =>
+    api.post("/auth/forgot-password", { email }),
+  verifyResetOtp: (data: { email: string; otp: string }) =>
+    api.post("/auth/verify-reset-otp", data),
+  resetPassword: (data: { email: string; otp: string; new_password: string }) =>
+    api.post("/auth/reset-password", data),
 };
 
 // ── Business API ──────────────────────────────────────────

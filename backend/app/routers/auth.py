@@ -18,7 +18,8 @@ from app.database.session import get_db
 from app.models.models import Profile, UserRole
 from app.schemas.schemas import (
     ProfileResponse, MessageResponse, TokenResponse,
-    SignUpRequest, LoginRequest, OTPVerifyRequest, RefreshTokenRequest
+    SignUpRequest, LoginRequest, OTPVerifyRequest, RefreshTokenRequest,
+    ForgotPasswordRequest, VerifyResetOtpRequest, ResetPasswordRequest,
 )
 from app.core.security import (
     create_access_token, create_refresh_token, decode_token,
@@ -296,6 +297,124 @@ async def resend_otp(
         )
 
     return MessageResponse(message=f"New verification code sent to {data.email}.")
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 1: User enters their email.
+    Sends a 6-digit OTP to the registered email for password reset.
+    Always returns success to prevent email enumeration.
+    """
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    profile = result.scalar_one_or_none()
+
+    # Always return 200 — don't reveal if email exists
+    if not profile or not profile.is_verified:
+        return MessageResponse(message=f"If {data.email} is registered, a reset code has been sent.")
+
+    otp = generate_otp()
+    now = datetime.now(timezone.utc)
+    profile.otp_secret = otp
+    profile.otp_expires_at = now + timedelta(minutes=OTP_EXPIRE_MINUTES)
+    profile.otp_fail_count = 0
+    await db.flush()
+
+    background_tasks.add_task(
+        send_otp_email,
+        email=profile.email,
+        otp=otp,
+        name=profile.full_name or profile.email.split("@")[0],
+    )
+
+    if not _is_email_configured():
+        return MessageResponse(
+            message=f"[DEV MODE] Password reset OTP: {otp}"
+        )
+
+    return MessageResponse(message=f"Password reset code sent to {data.email}. Valid for {OTP_EXPIRE_MINUTES} minutes.")
+
+
+@router.post("/verify-reset-otp", response_model=MessageResponse)
+async def verify_reset_otp(
+    data: VerifyResetOtpRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 2: Verify the reset OTP is correct and not expired.
+    Returns success — frontend then moves to the new password step.
+    OTP is NOT cleared here; it's cleared on actual password reset.
+    """
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    profile = result.scalar_one_or_none()
+
+    if not profile or not profile.otp_secret:
+        raise HTTPException(status_code=400, detail="No reset request found for this email.")
+
+    if profile.otp_fail_count >= 5:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new reset code.")
+
+    now = datetime.now(timezone.utc)
+    if not profile.otp_expires_at or now > profile.otp_expires_at:
+        profile.otp_secret = None
+        profile.otp_expires_at = None
+        await db.flush()
+        raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new one.")
+
+    if data.otp.strip() != profile.otp_secret:
+        profile.otp_fail_count += 1
+        await db.flush()
+        remaining = 5 - profile.otp_fail_count
+        raise HTTPException(status_code=400, detail=f"Invalid code. {remaining} attempt(s) remaining.")
+
+    return MessageResponse(message="Code verified. Please set your new password.")
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    data: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Step 3: Set the new password.
+    Verifies OTP once more, updates password, clears OTP fields.
+    """
+    result = await db.execute(select(Profile).where(Profile.email == data.email))
+    profile = result.scalar_one_or_none()
+
+    if not profile or not profile.otp_secret:
+        raise HTTPException(status_code=400, detail="No reset request found for this email.")
+
+    if profile.otp_fail_count >= 5:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Please request a new reset code.")
+
+    now = datetime.now(timezone.utc)
+    if not profile.otp_expires_at or now > profile.otp_expires_at:
+        profile.otp_secret = None
+        profile.otp_expires_at = None
+        await db.flush()
+        raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new one.")
+
+    if data.otp.strip() != profile.otp_secret:
+        profile.otp_fail_count += 1
+        await db.flush()
+        raise HTTPException(status_code=400, detail="Invalid code. Please try again.")
+
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+
+    # All good — update password and clear OTP
+    profile.hashed_password = hash_password(data.new_password)
+    profile.otp_secret = None
+    profile.otp_expires_at = None
+    profile.otp_fail_count = 0
+    await db.flush()
+
+    return MessageResponse(message="Password reset successfully. You can now log in with your new password.")
 
 
 @router.post("/logout", response_model=MessageResponse)
