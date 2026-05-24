@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   TrendingUp, TrendingDown, IndianRupee, FileText,
-  Users, Package, AlertTriangle, ArrowUpRight, Clock
+  Users, Package, AlertTriangle, ArrowUpRight, Clock, RefreshCw
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -51,13 +51,28 @@ function StatCard({
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchDashboard = () => {
+    setLoading(true);
+    setError(null);
     dashboardApi.get()
-      .then(r => setData(r.data))
-      .catch(() => toast.error("Failed to load dashboard"))
+      .then(r => { setData(r.data); })
+      .catch((err) => {
+        const status = err.response?.status;
+        const isNetworkError = !err.response;
+        if (isNetworkError) {
+          setError("Cannot reach the server. Make sure the backend is running and NEXT_PUBLIC_API_URL is set correctly.");
+        } else if (status === 401 || status === 403) {
+          setError("Session expired. Please log in again.");
+        } else {
+          setError(err.response?.data?.detail || `Server error (${status}). Please try again.`);
+        }
+      })
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchDashboard(); }, []);
 
   if (loading) {
     return (
@@ -75,7 +90,23 @@ export default function DashboardPage() {
     );
   }
 
-  if (!data) return null;
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mb-4">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Failed to load dashboard</h2>
+        <p className="text-slate-500 text-sm max-w-md mb-6">{error}</p>
+        <button
+          onClick={fetchDashboard}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" /> Try Again
+        </button>
+      </div>
+    );
+  }
   const { stats, recent_invoices, monthly_revenue } = data;
 
   const chartData = monthly_revenue.map(m => ({
