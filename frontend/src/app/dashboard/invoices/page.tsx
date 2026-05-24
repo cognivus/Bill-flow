@@ -136,7 +136,8 @@ export default function InvoicesPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
@@ -195,6 +196,47 @@ export default function InvoicesPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {data.items.map((inv) => (
+                <div key={inv.id} className="p-4 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <span className="font-mono text-sm font-semibold text-blue-600">{inv.invoice_number}</span>
+                      <p className="text-sm font-medium text-slate-800 mt-0.5 truncate">{inv.customer_name || "Walk-in Customer"}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(inv.invoice_date)}</p>
+                    </div>
+                    <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 mt-0.5", STATUS_COLORS[inv.payment_status])}>
+                      {inv.payment_status.replace("_", " ")}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-3">
+                    <div className="flex gap-4 text-sm">
+                      <span className="font-semibold text-slate-900">{formatCurrency(inv.grand_total)}</span>
+                      <span className={cn("font-medium", parseFloat(inv.amount_due) > 0 ? "text-red-600" : "text-emerald-600")}>
+                        Due: {formatCurrency(inv.amount_due)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Link href={`/dashboard/invoices/${inv.id}`}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                      <button onClick={() => handleDownloadPdf(inv.id, inv.invoice_number)}
+                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(inv.id, inv.invoice_number)}
+                        disabled={deletingId === inv.id}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Pagination */}

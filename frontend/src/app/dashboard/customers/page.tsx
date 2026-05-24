@@ -157,7 +157,8 @@ export default function CustomersPage() {
           </div>
         ) : (
           <>
-            <table className="w-full">
+            {/* Desktop table */}
+            <table className="w-full hidden md:table">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer</th>
@@ -223,6 +224,39 @@ export default function CustomersPage() {
                 ))}
               </tbody>
             </table>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {data.items.map(c => (
+                <div key={c.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => setViewCustomer(c)}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                      {getInitials(c.name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">{c.name}</p>
+                      {c.city && <p className="text-xs text-slate-400">{c.city}{c.state ? `, ${c.state}` : ""}</p>}
+                    </div>
+                    <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => openEdit(c)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(c.id, c.name)} disabled={deletingId === c.id}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-500 ml-12">
+                    {c.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{c.phone}</span>}
+                    {c.email && <span className="flex items-center gap-1 truncate"><Mail className="w-3 h-3" />{c.email}</span>}
+                    <span>{c.invoice_count} invoices • {formatCurrency(c.total_purchases)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
 
             {data.pages > 1 && (
               <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100">

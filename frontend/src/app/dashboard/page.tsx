@@ -255,9 +255,9 @@ export default function DashboardPage() {
             </div>
           ) : recent_invoices.map((inv) => (
             <Link key={inv.id} href={`/dashboard/invoices/${inv.id}`}
-              className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors group">
+              className="flex items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-slate-50 transition-colors group">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-sm font-medium text-slate-900">{inv.invoice_number}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[inv.payment_status]}`}>
                     {inv.payment_status.replace("_", " ")}
@@ -267,8 +267,8 @@ export default function DashboardPage() {
                   {inv.customer_name || "Walk-in Customer"} • {formatDate(inv.invoice_date)}
                 </p>
               </div>
-              <div className="text-right">
-                <p className="font-semibold text-slate-900">{formatCurrency(inv.grand_total)}</p>
+              <div className="text-right flex-shrink-0">
+                <p className="font-semibold text-slate-900 text-sm">{formatCurrency(inv.grand_total)}</p>
                 <ArrowUpRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-500 ml-auto mt-0.5 transition-colors" />
               </div>
             </Link>
