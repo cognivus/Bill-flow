@@ -95,20 +95,11 @@ export default function LoginPage() {
       try {
         const bizRes = await businessApi.getMe();
         setBusiness(bizRes.data);
-        toast.success(`Welcome back, ${user.full_name || user.email}!`);
-        router.push("/dashboard");
-      } catch (bizErr: any) {
-        // Only redirect to onboarding if business genuinely doesn't exist
-        // A network/server error should NOT send user to onboarding
-        if (bizErr.response?.status === 404) {
-          setBusiness(null);
-          router.push("/onboarding");
-        } else {
-          // Unknown error — go to dashboard anyway, layout will retry
-          toast.success(`Welcome back, ${user.full_name || user.email}!`);
-          router.push("/dashboard");
-        }
+      } catch {
+        // No business yet or error — dashboard will handle it
       }
+      toast.success(`Welcome back, ${user.full_name || user.email}!`);
+      router.push("/dashboard");
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Invalid email or password");
     } finally {

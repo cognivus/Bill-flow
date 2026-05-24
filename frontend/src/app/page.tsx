@@ -13,7 +13,7 @@ export default function RootPage() {
     } else if (user?.role === "super_admin") {
       router.replace("/admin");
     } else if (!hasBusiness) {
-      router.replace("/onboarding");
+      router.replace("/dashboard");
     } else {
       router.replace("/dashboard");
     }
