@@ -82,6 +82,7 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "case_sensitive": True,
         "env_file_encoding": "utf-8",
+        "extra": "ignore",  # silently ignore unknown .env keys (e.g. old RESEND_*, SENDGRID_*)
     }
 
 
