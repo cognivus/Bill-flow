@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,9 +32,18 @@ const INDIAN_STATES = [
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { setBusiness, user } = useAuthStore();
+  const { setBusiness, user, isAuthenticated, hasBusiness } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
+
+  // Auth guard — redirect unauthenticated users to login
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/auth/login");
+    } else if (hasBusiness) {
+      router.replace("/dashboard");
+    }
+  }, [isAuthenticated, hasBusiness, router]);
 
   const { register, handleSubmit, formState: { errors }, trigger, getValues } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -71,6 +80,9 @@ export default function OnboardingPage() {
       </div>
     );
   }
+
+  // Don't render anything while redirecting
+  if (!isAuthenticated || hasBusiness) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
