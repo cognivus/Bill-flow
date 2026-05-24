@@ -355,6 +355,7 @@ export default function LoginPage() {
                   <p className="text-slate-500 text-sm mt-1">
                     We sent a 6-digit code to <span className="font-semibold text-slate-700">{resetEmail}</span>
                   </p>
+                  <p className="text-slate-400 text-xs mt-2">Can't find it? Check your <span className="font-medium text-slate-500">spam or junk folder</span>.</p>
                 </div>
 
                 <form onSubmit={otpForm.handleSubmit(onVerifyOtp)} className="space-y-6">
