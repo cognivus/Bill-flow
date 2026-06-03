@@ -1,365 +1,361 @@
-# BillFlow — Multi-tenant SaaS Billing Platform
+<div align="center">
 
-A production-ready, full-stack SaaS billing platform for small businesses. Built with Next.js 15 + FastAPI + Supabase.
+# 🧾 BillFlow
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     BillFlow Platform                       │
-├────────────────────────┬────────────────────────────────────┤
-│  Frontend (Next.js 15) │  Backend (FastAPI + Python)        │
-│  TypeScript            │  SQLAlchemy ORM                    │
-│  Tailwind CSS          │  Pydantic v2 Schemas               │
-│  Zustand State         │  JWT Authentication                │
-│  React Hook Form + Zod │  ReportLab PDF Generation          │
-│  Recharts              │  Async/Await throughout            │
-├────────────────────────┴────────────────────────────────────┤
-│                Supabase (PostgreSQL + Auth + Storage)        │
-└─────────────────────────────────────────────────────────────┘
-```
+**GST-compliant invoicing SaaS for Indian small businesses**
 
----
+[![Next.js](https://img.shields.io/badge/Next.js-15.2-black?logo=next.js)](https://nextjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-3ECF8E?logo=supabase)](https://supabase.com)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://typescriptlang.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## Features
+[Features](#-features) · [Tech Stack](#-tech-stack) · [Getting Started](#-getting-started) · [API Docs](#-api-docs) · [Project Structure](#-project-structure)
 
-### Core
-- **Multi-tenant architecture** — each business has fully isolated data
-- **Role-based auth** — `super_admin` / `business_owner` / `staff` (future-ready)
-- **JWT authentication** — access + refresh tokens, auto-renewal
-- **GST invoice system** — CGST/SGST/IGST auto-calculation, HSN codes
-- **PDF generation** — professional ReportLab PDFs
-- **Invoice numbering** — configurable prefix + auto-increment (RT-0001, INV-0042)
+![BillFlow Dashboard](https://via.placeholder.com/900x500/0f172a/2563eb?text=BillFlow+Dashboard)
 
-### Modules
-| Module | Features |
-|--------|----------|
-| Auth | Signup, login, refresh, protected routes |
-| Business | Profile, logo, GST/PAN, address |
-| Dashboard | Revenue charts, stats, recent invoices |
-| Products | CRUD, GST%, HSN codes, inventory tracking |
-| Customers | CRUD, GST, purchase history |
-| Invoices | Multi-item, discounts, PDF, mark paid |
-| Settings | Business profile, invoice customization |
+</div>
 
 ---
 
-## Quick Start
+## ✨ Features
+
+### 🔐 Authentication
+- Email + password signup with **OTP email verification**
+- **Forgot password** via OTP (3-step: email → verify code → new password)
+- JWT access + refresh token system with auto-renewal
+- 60-second resend cooldown, 5-attempt brute-force protection
+- Auto-delete stale accounts (unverified after 30 min, abandoned onboarding after 30 min)
+
+### 🏢 Multi-tenant Business Management
+- Each user owns one business with isolated data
+- Business onboarding with slug generation
+- Logo upload via Supabase Storage
+- Custom invoice prefix, terms, notes, currency
+
+### 🧾 Invoice Management
+- Create GST-compliant invoices with line items
+- **CGST / SGST** (intra-state) and **IGST** (inter-state) tax calculation
+- HSN code support
+- Invoice statuses: Draft → Sent → Paid / Partially Paid / Overdue / Cancelled
+- Sequential invoice numbering (atomic, race-condition safe)
+- **Download PDF** and **Print** directly from the browser
+- Customer stats (total purchases, invoice count) updated automatically
+
+### 📦 Product & Customer Management
+- Product catalog with GST %, HSN code, unit, stock tracking
+- Customer directory with purchase history
+- Soft delete for both (data preserved, filtered from lists)
+- Search with 300ms debounce across all list pages
+
+### 📊 Dashboard Analytics
+- Revenue summary, outstanding dues, overdue invoices
+- Monthly revenue chart (area graph)
+- Recent invoices list
+- Stat cards with trend indicators
+
+### 👑 Super Admin Panel
+- View and manage all registered businesses
+- Toggle business active/inactive
+- Delete business and all its data
+- View all platform users, create users, change roles
+
+---
+
+## 🛠 Tech Stack
+
+### Frontend
+| Technology | Version | Purpose |
+|---|---|---|
+| Next.js | 15.2.6 | React framework (App Router) |
+| TypeScript | 5 | Type safety |
+| Tailwind CSS | 3.4 | Styling |
+| Zustand | 5.0 | Auth state management (persisted) |
+| React Hook Form | 7.53 | Form handling |
+| Zod | 3.23 | Schema validation |
+| Axios | 1.7 | HTTP client with interceptors |
+| Recharts | 2.13 | Dashboard charts |
+| Sonner | 1.5 | Toast notifications |
+| Lucide React | 0.453 | Icons |
+
+### Backend
+| Technology | Version | Purpose |
+|---|---|---|
+| FastAPI | 0.115 | Async REST API framework |
+| SQLAlchemy | 2.0 | Async ORM |
+| Alembic | 1.13 | Database migrations |
+| asyncpg | 0.29 | Async PostgreSQL driver |
+| Pydantic v2 | 2.9 | Request/response validation |
+| passlib + bcrypt | 1.7 / 4.0.1 | Password hashing |
+| python-jose | 3.3 | JWT tokens |
+| ReportLab | 4.2 | PDF invoice generation |
+| aiosmtplib | 3.0 | Async SMTP email |
+| APScheduler | 3.10 | Background cleanup jobs |
+| Supabase | 2.9 | Storage (logos) |
+| Pillow | 10.4 | Image processing |
+
+### Infrastructure
+| Service | Purpose |
+|---|---|
+| Supabase | PostgreSQL database + file storage |
+| Netlify | Frontend hosting |
+| Gmail SMTP | Transactional OTP emails |
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
+- Node.js 18+
 - Python 3.12+
-- Node.js 20+
-- Docker & Docker Compose (recommended)
-- Supabase account (or local PostgreSQL)
+- A [Supabase](https://supabase.com) project (free tier works)
+- Gmail account with [App Password](https://myaccount.google.com/apppasswords) enabled
 
-### Option A: Docker Compose (Recommended)
+---
+
+### 1. Clone the repository
 
 ```bash
-git clone <repo>
-cd saas-billing-platform
-
-# Copy environment files
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
-
-# Edit backend/.env with your Supabase credentials
-nano backend/.env
-
-# Start everything
-docker compose up --build
-
-# Access:
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
-# API Docs: http://localhost:8000/api/docs
+git clone https://github.com/cognivus/Bill-flow.git
+cd Bill-flow
 ```
 
-### Option B: Manual Setup
+---
 
-#### Backend
+### 2. Backend Setup
 
 ```bash
 cd backend
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy and configure environment
+# Configure environment
 cp .env.example .env
-# Edit .env with your DATABASE_URL and secrets
-
-# Run database migrations (creates tables)
-uvicorn app.main:app --reload
-
-# Or run with production settings
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-#### Frontend
-
-```bash
-cd frontend
-npm install
-
-cp .env.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:8000
-
-npm run dev
-```
-
----
-
-## Environment Variables
-
-### Backend (`backend/.env`)
+Edit `.env` with your values:
 
 ```env
-# App
-APP_ENV=development
-DEBUG=True
+# Security
+SECRET_KEY=your-secret-key-min-32-chars
+JWT_SECRET_KEY=your-jwt-secret-min-32-chars
 
-# Security — CHANGE THESE IN PRODUCTION!
-SECRET_KEY=your-min-32-char-secret-key-here
-JWT_SECRET_KEY=your-min-32-char-jwt-secret-here
+# Database (Supabase → Project Settings → Database → URI)
+DATABASE_URL=postgresql+asyncpg://postgres.YOURREF:YOURPASS@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
 
-# Supabase PostgreSQL
-DATABASE_URL=postgresql+asyncpg://postgres.xxxx:password@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+# Supabase (Project Settings → API)
+SUPABASE_URL=https://YOURREF.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
-# Supabase
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_ANON_KEY=eyJhbGciOiJI...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJI...
+# Gmail SMTP (requires 2FA + App Password)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your@gmail.com
+SMTP_PASSWORD=xxxx xxxx xxxx xxxx
+SMTP_FROM_EMAIL=your@gmail.com
+SMTP_USE_TLS=True
 
-# CORS
-ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
-
-# Super Admin (first user with this email gets super_admin role)
+# Super Admin
 SUPER_ADMIN_EMAIL=admin@yourdomain.com
 ```
 
-### Frontend (`frontend/.env.local`)
+```bash
+# Run database migrations
+alembic upgrade head
+
+# Start the backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+API available at: `http://localhost:8000`  
+Interactive docs: `http://localhost:8000/docs`
+
+---
+
+### 3. Frontend Setup
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env.local
+```
+
+Edit `.env.local`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
----
+```bash
+# Start the development server
+npm run dev
+```
 
-## Supabase Setup
-
-### 1. Create Project
-Go to [supabase.com](https://supabase.com) → New Project
-
-### 2. Run Schema
-In Supabase SQL Editor, run `docs/schema.sql`
-
-### 3. Load Demo Data (optional)
-Run `docs/seed.sql`
-
-### 4. Get Credentials
-- Project Settings → API → `anon` key and `service_role` key
-- Project Settings → Database → Connection string
-
-### 5. Storage Buckets
-Create two buckets in Supabase Storage:
-- `business-logos` (public)
-- `invoices` (private)
+App available at: `http://localhost:3000`
 
 ---
 
-## API Reference
+### 4. Docker (Optional)
 
-### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/auth/signup` | Create account |
-| POST | `/api/v1/auth/login` | Login, get tokens |
-| POST | `/api/v1/auth/refresh` | Refresh access token |
-| GET | `/api/v1/auth/me` | Get current user |
-| POST | `/api/v1/auth/logout` | Logout |
+Run everything with a single command:
 
-### Business
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/businesses` | Create business |
-| GET | `/api/v1/businesses/me` | Get my business |
-| PUT | `/api/v1/businesses/me` | Update business |
-
-### Invoices
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/invoices` | List with filters |
-| POST | `/api/v1/invoices` | Create invoice |
-| GET | `/api/v1/invoices/{id}` | Get invoice |
-| PUT | `/api/v1/invoices/{id}` | Update invoice |
-| DELETE | `/api/v1/invoices/{id}` | Delete invoice |
-| GET | `/api/v1/invoices/{id}/pdf` | Download PDF |
-
-### Full Swagger docs: `http://localhost:8000/api/docs`
+```bash
+docker-compose up --build
+```
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
-saas-billing-platform/
+Bill-flow/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI app + lifespan
-│   │   ├── core/
-│   │   │   ├── config.py        # Settings (pydantic-settings)
-│   │   │   ├── security.py      # JWT + bcrypt
-│   │   │   └── logging.py       # Structured logging
-│   │   ├── database/
-│   │   │   └── session.py       # Async SQLAlchemy engine
-│   │   ├── models/
-│   │   │   └── models.py        # All ORM models
-│   │   ├── schemas/
-│   │   │   └── schemas.py       # Pydantic v2 schemas
-│   │   ├── routers/
-│   │   │   ├── auth.py          # Auth endpoints
-│   │   │   ├── businesses.py    # Business CRUD
-│   │   │   ├── products.py      # Products CRUD
-│   │   │   ├── customers.py     # Customers CRUD
-│   │   │   ├── invoices.py      # Invoices + PDF
-│   │   │   └── dashboard.py     # Analytics
-│   │   ├── services/
-│   │   │   └── invoice_service.py  # GST calc + PDF gen
 │   │   ├── auth/
-│   │   │   └── dependencies.py  # JWT deps, RBAC
-│   │   └── middleware/
-│   │       └── tenant.py        # Tenant isolation
+│   │   │   └── dependencies.py       # JWT auth, role guards
+│   │   ├── core/
+│   │   │   ├── config.py             # Pydantic settings
+│   │   │   ├── email.py              # Gmail SMTP (aiosmtplib)
+│   │   │   ├── logging.py            # Logging config
+│   │   │   └── security.py           # Password hashing, JWT
+│   │   ├── database/
+│   │   │   └── session.py            # Async SQLAlchemy session
+│   │   ├── middleware/
+│   │   │   └── tenant.py             # Multi-tenant isolation
+│   │   ├── models/
+│   │   │   └── models.py             # SQLAlchemy ORM models
+│   │   ├── routers/
+│   │   │   ├── auth.py               # Signup, login, OTP, forgot password
+│   │   │   ├── businesses.py         # Business CRUD + logo upload
+│   │   │   ├── customers.py          # Customer management
+│   │   │   ├── dashboard.py          # Analytics aggregation
+│   │   │   ├── invoices.py           # Invoice CRUD + PDF
+│   │   │   ├── products.py           # Product catalog
+│   │   │   └── admin.py              # Super admin panel
+│   │   ├── schemas/
+│   │   │   └── schemas.py            # Pydantic request/response models
+│   │   ├── services/
+│   │   │   ├── invoice_service.py    # GST calc, PDF generation
+│   │   │   ├── cleanup_service.py    # Stale account deletion
+│   │   │   └── storage_service.py    # Supabase file storage
+│   │   └── main.py                   # FastAPI app + scheduler
+│   ├── alembic/                      # Database migrations
 │   ├── requirements.txt
-│   ├── Dockerfile
 │   └── .env.example
 │
 ├── frontend/
 │   └── src/
 │       ├── app/
-│       │   ├── auth/login/      # Login page
-│       │   ├── auth/signup/     # Signup page
-│       │   ├── onboarding/      # Business setup
-│       │   └── dashboard/
-│       │       ├── layout.tsx   # Sidebar layout
-│       │       ├── page.tsx     # Dashboard + charts
-│       │       ├── invoices/    # Invoice list + create + view
-│       │       ├── products/    # Products grid
-│       │       ├── customers/   # Customers table
-│       │       └── settings/    # Business settings
+│       │   ├── auth/
+│       │   │   ├── login/            # Login + forgot password flow
+│       │   │   └── signup/           # Signup + OTP verification
+│       │   ├── dashboard/
+│       │   │   ├── page.tsx          # Analytics dashboard
+│       │   │   ├── invoices/         # Invoice list, create, detail
+│       │   │   ├── customers/        # Customer management
+│       │   │   ├── products/         # Product catalog
+│       │   │   └── settings/         # Business settings
+│       │   ├── admin/                # Super admin panel
+│       │   └── onboarding/           # Business setup wizard
 │       ├── lib/
-│       │   ├── api.ts           # Axios client + all APIs
-│       │   ├── store.ts         # Zustand auth store
-│       │   └── utils.ts         # Formatters, helpers
+│       │   ├── api.ts                # Axios client + all API calls
+│       │   ├── store.ts              # Zustand auth store
+│       │   └── utils.ts              # Helpers, formatters
 │       └── types/
-│           └── index.ts         # All TypeScript types
+│           └── index.ts              # TypeScript interfaces
 │
 ├── docs/
-│   ├── schema.sql               # Full DB schema + RLS
-│   └── seed.sql                 # Demo data
+│   ├── schema.sql                    # Database schema reference
+│   └── seed.sql                      # Sample data
 │
-└── docker-compose.yml
+├── docker-compose.yml
+└── netlify.toml
 ```
 
 ---
 
-## Demo Credentials
+## 📡 API Docs
 
-After running seed data:
+Once the backend is running, visit:
 
-| Role | Email | Password |
-|------|-------|----------|
-| Business Owner | demo@billflow.io | Demo@1234 |
-| Super Admin | admin@billflow.io | Demo@1234 |
+| URL | Description |
+|---|---|
+| `http://localhost:8000/docs` | Swagger UI (interactive) |
+| `http://localhost:8000/redoc` | ReDoc (clean reference) |
 
----
+### Key Endpoints
 
-## Deployment
-
-### Frontend → Vercel
-
-```bash
-cd frontend
-npm run build  # verify build passes
-
-# In Vercel dashboard:
-# 1. Import repo
-# 2. Set NEXT_PUBLIC_API_URL to your backend URL
-# 3. Deploy
 ```
+POST   /api/v1/auth/signup              Register + send OTP
+POST   /api/v1/auth/verify-otp          Verify OTP → get tokens
+POST   /api/v1/auth/login               Login with email + password
+POST   /api/v1/auth/forgot-password     Send reset OTP
+POST   /api/v1/auth/verify-reset-otp    Verify reset OTP
+POST   /api/v1/auth/reset-password      Set new password
 
-### Backend → Railway / Render
+GET    /api/v1/businesses/me            Get current business
+POST   /api/v1/businesses               Create business (onboarding)
+PUT    /api/v1/businesses/me            Update business settings
 
-```bash
-# Railway
-railway login
-railway new
-railway up
+GET    /api/v1/invoices                 List invoices (paginated, filterable)
+POST   /api/v1/invoices                 Create invoice
+GET    /api/v1/invoices/{id}            Get invoice detail
+PUT    /api/v1/invoices/{id}            Update invoice / mark paid
+DELETE /api/v1/invoices/{id}            Delete invoice
+GET    /api/v1/invoices/{id}/pdf        Download PDF
 
-# Set environment variables in Railway dashboard
-# Add: DATABASE_URL, JWT_SECRET_KEY, SECRET_KEY, etc.
-```
+GET    /api/v1/customers                List customers
+POST   /api/v1/customers               Create customer
+GET    /api/v1/products                 List products
+POST   /api/v1/products                Create product
 
-### Backend → Docker
+GET    /api/v1/dashboard                Analytics summary
 
-```bash
-cd backend
-docker build -t billflow-api .
-docker run -p 8000:8000 \
-  -e DATABASE_URL=... \
-  -e JWT_SECRET_KEY=... \
-  -e SECRET_KEY=... \
-  billflow-api
+GET    /api/v1/admin/stats              Platform stats (super admin)
+GET    /api/v1/admin/businesses         All businesses (super admin)
+GET    /api/v1/admin/users              All users (super admin)
 ```
 
 ---
 
-## Future Roadmap
+## 🔒 Security
 
-### AI Integration (LangChain / LangGraph)
-```python
-# Prepared hook in invoice service
-# app/services/ai_service.py (add)
-from langchain.chat_models import ChatOpenAI
-
-async def extract_invoice_from_image(image_bytes: bytes) -> dict:
-    """OCR + LLM to parse invoice from uploaded image"""
-    ...
-
-async def generate_payment_reminder(invoice: Invoice) -> str:
-    """AI-drafted WhatsApp/email reminder"""
-    ...
-```
-
-### WhatsApp Integration
-```python
-# app/services/whatsapp_service.py (add)
-async def send_invoice_whatsapp(invoice: Invoice, pdf_url: str):
-    """Send invoice PDF via WhatsApp Business API"""
-    ...
-```
-
-### Staff Accounts
-The `staff` role is already in the ENUM. Add:
-- `business_staff` table with permissions
-- Scoped JWT tokens for staff
+- Passwords hashed with **bcrypt** (via passlib)
+- JWTs signed with HS256, short-lived access tokens (7 days) + refresh tokens
+- OTP brute-force protection (5 attempts max, 10-min expiry)
+- Multi-tenant isolation — every query scoped by `business_id`
+- Pydantic v2 input validation on all endpoints
+- CORS configured via environment variable
+- Security headers: `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`
 
 ---
 
-## Security Checklist
+## 🤝 Contributing
 
-- [x] bcrypt password hashing
-- [x] JWT access + refresh tokens
-- [x] Supabase Row Level Security
-- [x] Business-level data isolation (business_id in all queries)
-- [x] Security response headers
-- [x] Input validation (Pydantic + Zod)
-- [x] SQL injection prevention (SQLAlchemy ORM)
-- [ ] Rate limiting (add `slowapi` to backend)
-- [ ] CSRF protection
-- [ ] Audit logging table
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'feat: add your feature'`
+4. Push to the branch: `git push origin feature/your-feature`
+5. Open a Pull Request
 
 ---
 
-Built with ❤️ by the BillFlow team
+## 📄 License
+
+This project is licensed under the MIT License.
+
+---
+
+<div align="center">
+  Built with ❤️ by <a href="https://github.com/cognivus">Cognivus</a>
+</div>
